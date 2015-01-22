@@ -1,0 +1,134 @@
+%uncomment line 884 in mainv3.m first (read its comment too)
+clc
+logsize=length(find(log(1,:)));
+for I=1:logsize
+    J=log(2,I);
+    switch(J)
+        case -2
+            ab='force regen';
+        case -1
+            ab='rotation';
+        case 0
+            ab='recalculating ability damage';
+        case 1
+            ab='deleted weaken mind tick / out of force';
+        case 2
+            ab='force serenity';
+        case 3
+            ab='vanquish hit';
+        case 4
+            ab='vanquish tick';
+        case 5
+            ab='mind crush hit';
+        case 6
+            ab='mind crush tick';
+        case 7
+            ab='activate sever force';
+        case 8
+            ab='sever force tick';
+        case 9
+            ab='activate weaken mind';
+        case 10
+            ab='weaken mind tick';
+        case 11
+            ab='force in balance';
+        case 12
+            ab='disturbance';
+        case 13
+            ab='activate telekinetic throw';
+        case 14
+            ab='telekinetic throw tick';
+        case 15
+            ab='rippling force';
+        case 16
+            ab='telekinetic focal point on';
+        case 17
+            ab='telekinetic focal point off';
+        case 18
+            ab='force potency';
+        case 19
+            ab='mental alacrity';
+        case 20
+            ab='adrenal';
+        case 21
+            ab='power relic';
+        case 22
+            ab='potent force in balance';
+        case 23
+            ab='potent tkt';
+        case 24
+            ab='potent tkt tick';
+        case 25
+            ab='power proc relic effect fades';
+        case 26
+            ab='set bonus 5% alacrity fades';
+        case 27
+            ab='turbulence';
+        case 28
+            ab='telekinetic gust';
+        case 29
+            ab='telekinetic wave';
+        case 30
+            ab='telekinetic burst';
+        case 31
+            ab='set bonus 2% damage fades';
+        case 32
+            ab='force empowerment';
+        case 33
+            ab='mainstat proc relic effect fades';
+        case 34
+            ab='tidal force proc runs out';
+        case 35
+            ab='turbulence mental momentum';
+        case 36
+            ab='tk wave mental momentum';
+        case 37
+            ab='tk gust mental momentum';
+        case 38
+            ab='tk burst mental momentum';
+        case 39
+            ab='mental continuum stacks+';
+        case 40
+            ab='mental continuum stacks-';
+        case 41
+            ab='force speed';
+        case 100
+            ab='mainstat proc relic on';
+        case 101
+            ab='power proc relic on';
+        otherwise
+            ab=['unknown, ' num2str(J)];
+    end
+    disp(['Time: ' num2str(round(log(1,I))/1000) ' || Ability: ' ab '  || Damage: ' num2str(round(log(3,I))) ' || Force: ' num2str(round(log(4,I)))])
+end
+
+%% force graph
+
+time=log(1,log(1,:)>0);
+force=log(4,1:length(time));
+figure(1)
+p1=plot(time/1000,force);
+xlabel('time')
+ylabel('force')
+
+%% damage distribution
+total=sum(log(3,:));
+Turbulence=sum(log(3,log(2,:)==27));
+TKBurst=sum(log(3,log(2,:)==30));
+TKGust=sum(log(3,log(2,:)==28));
+TKWave=sum(log(3,log(2,:)==29));
+WeakenMind=sum(log(3,log(2,:)==10));
+Turbulenceproc=sum(log(3,log(2,:)==35));
+TKBurstproc=sum(log(3,log(2,:)==38));
+TKGustproc=sum(log(3,log(2,:)==37));
+TKWaveproc=sum(log(3,log(2,:)==36));
+MindCrush=sum(log(3,log(2,:)==5));
+MindCrushDots=sum(log(3,log(2,:)==6));
+
+x1=[Turbulence,TKBurst,TKGust,TKWave,WeakenMind,Turbulenceproc,TKBurstproc,TKGustproc,TKWaveproc,MindCrush,MindCrushDots];
+str = {'Turbulence','Telekinetic Burst','Telekinetic Gust','Telekinetic Wave','Weaken Mind','Turbulence (momentum)','Telekinetic Burst (momentum)','Telekinetic Gust (momentum)','Telekinetic Wave (momentum)','Mind Crush','Mind Crush (dots)'}; % strings
+explode=[0 0 0 0 0 1 1 1 1 1 0];
+
+figure(2)
+h = pie(x1,explode);
+legend(str, 'Location','eastoutside','Orientation','vertical')
