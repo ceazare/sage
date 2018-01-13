@@ -1,0 +1,458 @@
+combat_power = [1869.2 1869.2]; %max level mainhand / offhand
+critical_power_sheet = [1.104 1.104];
+
+critical_chance_sheet = [0.425 0.425];
+critical_power_sheet = [1.401 1.401];
+
+multihit_penalty_crit = 2*(1-0.5.^(1./(1:4)));
+multihit_penalty_critpower = 1 ./ multihit_penalty_crit;
+
+%gear equipped
+KSR = 0; %using KSR
+MIRV = 1; %MIRV Launcher
+AEL = 0; %AEL-550
+AUX = 0; %Auxiliary Loader
+HYL = 0; %High-Yield Launcher
+vali_metabolic_enhancer = 1;
+cold_silver_dice = 1;
+MIRV_hits = 3;
+seed_of_aggression = 0;
+military_strap = 1;
+of_energy = [0 0];
+of_destruction = [0 0];
+of_havoc = [1 0];
+of_efficiency = [0 0];
+gamblers_soul = ~cold_silver_dice;
+iron_sulfur_bracelet = 1;
+o35_turret = ~vali_metabolic_enhancer;
+egon_pendant = ~seed_of_aggression;
+ashes_of_crushed_cities = 1;
+
+signet_of_commando = 0.2875 * 1;
+signet_of_riflemans_creed = 1.1121 * 1;
+signet_of_veteran = 0.5632 * 1;
+signet_of_time_and_space = 0.5921 * 1;
+signet_of_laceration = 1;
+
+%actives
+high_explosive_grenade = 1;
+incendiary_grenade = 1;
+burst_fire = 1;
+placed_shot = 1;
+shell_salvage = 1;
+raging_shot = 1;
+lock_n_load = 0;
+savagery = 0;
+
+%passives
+jungle_style = 0;
+stability = [0 0.25 0.5] * 1;
+slow_burn = 1;
+auto_loader = 0;
+white_phosphorous_shells = 0;
+secondary_explosion = 1;
+emergency_loader = 0.15 * 0;
+heavy_payload = 1;
+
+exposed = 0.1 * 0;
+for test = 1:size(testmatrix,1)
+combo_str = num2cell(testmatrix(test,:));
+[vali_metabolic_enhancer o35_turret cold_silver_dice gamblers_soul egon_pendant seed_of_aggression ashes_of_crushed_cities iron_sulfur_bracelet military_strap of_energy(1) of_destruction(1) of_havoc(1) signet_of_laceration MIRV_hits jungle_style stability(1) slow_burn auto_loader white_phosphorous_shells secondary_explosion emergency_loader heavy_payload]=deal(combo_str{:});
+stability = stability(1) * [0 0.25 0.5];
+emergency_loader = emergency_loader*0.15;
+
+dmg_placedShot = round(1.175 * combat_power(1));
+dmg_highExplosiveGrenade = round(10.742 * combat_power(1) * (1 + HYL*0.185));
+dmg_highExplosiveGrenadeDot = round(0.145 * combat_power(1) * (1 + HYL*0.185));
+dmg_incendiaryGrenade = round(0.818 * combat_power(1) * (1 + HYL*0.185));
+dmg_incendiaryGrenadeDot = round(0.92 * combat_power * (1 + HYL*0.185));
+dmg_burstFire = round(1.1416 * combat_power(1));
+dmg_ragingShot = round(3.425 * combat_power(2));
+dmg_secondaryExplosion = round(0.8975 * combat_power(1));
+dmg_crushedCities = round(0.375 * combat_power);
+dmg_gamblersSoul = round(0.25 * combat_power);
+dmg_ironSulfurBracelet = round(0.5 * combat_power);
+dmg_destruction = round(0.447 * combat_power);
+dmg_effigyO35Turret = round(4*5*0.1125 * combat_power);
+dmg_dragonsBreath = round(0.1147 * combat_power);
+dmg_SPES_C221 = round(1.5 * combat_power(2));
+dmg_egonPendant = round(5 * 0.03 * combat_power); %easier than overwriting every second
+dmg_MIRV = round(1.24 * combat_power(1));
+gadget_cd = 30 * (1 - signet_of_time_and_space);
+
+critpower_sheet = critical_power_sheet + of_havoc*0.075;
+critical_chance = critical_chance_sheet + 0.075; %crit chance 
+critpower = critpower_sheet + 0.3; %crit power
+
+iterations = 20000;
+if test == 1
+    iterations = 2.5*iterations;
+end
+dps=zeros(1,iterations);
+
+parfor j = 1:iterations %parallel for
+    energy = 15; %energy
+    energy2 = 15; %offhand energy
+    shells = 6; %starting amount of shells
+    [cd_heg cd_ss cd_vme cd_tg cd_ig egon_timeout AUX_timeout cd_ll cd_sa savagery_timeout cd_lac laceration_timeout] = deal(0); %resets to 0
+    [grenade ig_ticks(1:2) choose_shells db_stacks spes_stacks AL falloff_times(1:6) ashes_counter egon cumulative_delay AUXchance savagery_bonus laceration] = deal(0); %resets to 0
+    t=0;
+    te2=0; %for energy2 regen start
+    totaldmg = 0;
+    bossHP = 10000000;
+    bossHP35 = bossHP * 0.65;
+    bossHP50 = bossHP * 0.5;
+    time = 1000; %roughly how many seconds of combat
+    %log = zeros(11,round(max(bossHP/2000,time*8))); %basic log for debugging purposes, initial length correlates with bossHP and time
+    n=1; %log index
+    for i=1:time
+        %reset flags
+        crit = 0; %ability crit yes/no
+        csd = 0; %cold silver dice yes/no
+        soa = 0; %seed of aggression yes/no
+        js = 0; %jungle style yes/no
+        en = 0; %*of energy proc yes/no
+        hand = 1; %mainhand = 1 (default); offhand = 2
+        
+        %Skill priority section. Assings a number to each skill        
+        me = ((cd_vme<=t) && (vali_metabolic_enhancer == 1) && (energy <= 11) && (energy2 <= 12 || raging_shot == 0)) * 98; %vali gadget
+        ll = ((cd_ll<=t) && (lock_n_load == 1) && (energy <= 10) && ((heavy_payload == 1) <= (grenade <= 0))) * 97;
+        ss = ((shell_salvage == 1) && (choose_shells == 0) && (cd_ss<=t) && (energy <= 9 - (grenade>=5.1)) && (energy2 + 2 + shells <= 14)) * 96; %use shell salvage if possible and if energy doesn't overcap
+        tu = ((cd_tg<=t) && (o35_turret == 1)) * 95; %turret gadget
+        sa = (((savagery == 1) && (cd_sa<=t) && (~high_explosive_grenade)) || (((t-cd_heg)<=5) && high_explosive_grenade)) * 92;
+        heg = ((high_explosive_grenade == 1) && (cd_heg<=t) && (grenade <= 3.1) && (grenade > 0) && (energy >= 4)) * 90;
+        ig = ((incendiary_grenade == 1) && (cd_ig<=t) && (energy >= 2) && (grenade > 0)) * (75 * (grenade <= 3.1) + 9 * (grenade < 1)); %75 if available, 84 if last second of cooked grenade
+        bf = (burst_fire == 1) * 40 * ((grenade <= 0)||((energy > 14) && (((cd_vme <= t+1) && (vali_metabolic_enhancer == 1)) || ((cd_ss <= t+1) && (shell_salvage == 1)) || ((cd_ll <= t+1) && (lock_n_load == 1))))) * (energy >= 5) + 20 * (energy >= 14); %use burst fire if energy allows and no grenades active. prioritize if energy is close to cap
+        rs = ((raging_shot == 1) && (energy2 >= 5) && (choose_shells == 0)) * (30 + 20 * ((energy2 >= 14) || (t == falloff_times(1)) || ((t+1) == falloff_times(1)))); %30 normally, above burst fire if close to energy cap or dragon's breath is about to fall off
+        cs = (choose_shells == 1) * (35 + (energy2 >= 14) + 20 * (energy2 >= 14)); % if choosing shells is active; 35 normally, above burst fire if close to energy cap
+        ps = (placed_shot == 1) * (10 + 70 * ((energy <= 6) && (cd_heg <= t+2) && ((shell_salvage == 0) || (cd_ss >= cd_heg + 3)))); %20 normally, 80 when energy for High Explosive needed        
+
+        %case 1 2  3  4   5  6  7  8  9  10 11  
+        A = [ps ig bf heg rs ss cs me tu ll sa];
+        action = find(A==max(A)); % position of the ability with highest priority
+        
+        %%Skill with highest number then gets executed
+        switch action
+            case 1 % placed shot
+                crit = (rand < critical_chance(1)); %crit yes/no
+                damage = round(dmg_placedShot * (1 + crit * (critpower(1) + laceration)) .* (1 + signet_of_riflemans_creed + egon + savagery_bonus) * (1 + exposed));
+
+                csd = crit * (rand < 0.3) * cold_silver_dice; %cold silver dice proc yes/no
+                soa = (rand < 0.15) * seed_of_aggression * (totaldmg > bossHP50); %seed of aggression proc yes/no
+                en = 0; %weapon of energy proc yes/no
+                js = 0; %jungle style proc yes/no
+                energy = min(15, energy + crit + csd + soa);
+                gcd = 1; % triggers gcd
+                if of_efficiency(1) == 1
+                    cd_heg = cd_heg - (cd_heg - t)*0.05;
+                end                
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+                totaldmg = totaldmg + sum(damage);
+            case 2 % incendiary grenade
+                crit = (rand < critical_chance(1));
+                damage = round(dmg_incendiaryGrenade * (1 + crit * (critpower(1) + laceration)) .* (1 + signet_of_commando + egon + savagery_bonus) * (1 + exposed));
+                ig_ticks = [8 + slow_burn*2, ig_ticks(1)]; %sets 8-10 grenade ticks, saves how many ticks remained from previous grenade 
+
+                csd = crit * (rand < 0.3) * cold_silver_dice;
+                soa = (rand < 0.15) * seed_of_aggression * (totaldmg > bossHP50);
+                energy = min(15, energy + crit + soa + military_strap);
+                energy = energy - 2;
+                energy = min(15, energy + csd);
+
+                gcd = 1;
+                cd_ig = t+2;
+                cd_heg = max(cd_heg, cd_ig);
+                if of_efficiency(1) == 1
+                    cd_heg = cd_heg - (cd_heg - t)*0.05;
+                end
+                
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+                totaldmg = totaldmg + sum(damage);
+                if MIRV == 1 && MIRV_hits > 0
+                    crit = (rand(1,MIRV_hits) < critical_chance(1));
+                    damage = round(dmg_MIRV * (1 + crit * (critpower(1) + laceration)) .* (1 + egon + savagery_bonus) * (1 + exposed));
+                    %log(:,n:n+MIRV_hits-1) = [[t;40]*ones(1,MIRV_hits);damage;[energy;energy2]*ones(1,MIRV_hits);crit;grenade*ones(1,MIRV_hits);[csd,soa,en,js;zeros(MIRV_hits-1,4)]'];
+                    n = n+MIRV_hits;
+                    totaldmg = totaldmg + sum(damage);
+                end    
+                if secondary_explosion == 1
+                    crit = (rand < critical_chance(1));
+                    damage = round(dmg_secondaryExplosion * (1 + crit * (critpower(1) + laceration)) .* (1 + signet_of_commando + egon + savagery_bonus) * (1 + exposed));
+                    %log(:,n) = [t;36;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                    n = n+1;
+                    totaldmg = totaldmg + sum(damage);
+                end
+                grenade = 0;
+            case 3 % burst fire
+                crit = (rand(1,3) < (critical_chance(1) * multihit_penalty_crit(3)));
+                damage = round(dmg_burstFire * (1 + crit * (critpower(1) + laceration) * multihit_penalty_critpower(3)) .* (1 + signet_of_commando + stability + egon + savagery_bonus) * (1 + exposed));
+
+                grenade = (0.1 + 3 * (2-KSR)) * (rand < 0.65 + emergency_loader + AL + AUXchance); %loads a grenade. extra .1 seconds from personal experience.
+                AL = 0;
+
+                csd = max(crit) * (rand < 0.3) * cold_silver_dice;
+                soa = (rand < 0.15) * seed_of_aggression * (totaldmg > bossHP50);
+                en = (rand < 0.33) * of_energy(1);
+                js = (energy == 0) .* ~max(crit) .* ~soa .* jungle_style;
+                energy = min(15, energy + max(crit) + soa);
+                energy = energy - 5;
+                energy = min(15, energy + csd + js + en);
+                gcd = 1;
+                if of_efficiency(1) == 1
+                    cd_heg = cd_heg - (cd_heg - t)*0.05;
+                end
+                if grenade == 0 && AUX == 1 % auxiliary loader
+                    AUXchance = 0.15;
+                    AUX_timeout = t+5;
+                else
+                    AUXchance = 0;
+                end
+
+                %log(:,n:n+2) = [[t;action]*ones(1,3);damage;[energy;energy2]*ones(1,3);crit;grenade*ones(1,3);[csd,soa,en,js;zeros(2,4)]'];
+                n = n+3;
+                totaldmg = totaldmg + sum(damage);
+            case 4 % high explosive grenade
+                crit = (rand < critical_chance(1));
+                damage = round((dmg_highExplosiveGrenade + 8*dmg_highExplosiveGrenadeDot)* (1 + crit * (critpower(1) + laceration)) * (1 + signet_of_veteran + egon + savagery_bonus) * (1 + exposed));
+
+                csd = crit * (rand < 0.3) * cold_silver_dice;
+                soa = (rand < 0.15) * seed_of_aggression * (totaldmg > bossHP50);
+                js = (energy == 0) * ~crit * ~soa * ~military_strap * jungle_style;            
+                energy = min(15, energy + crit + soa + military_strap);
+                energy = energy - 4;
+                energy = min(15, energy + csd + js);            
+                gcd = 1;
+                cd_heg = t+20;
+                cd_ig = t+2;
+                AL = 1 * auto_loader; %auto-loader
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+                totaldmg = totaldmg + sum(damage);
+                if MIRV == 1 && MIRV_hits > 0
+                    crit = (rand(1,MIRV_hits) < critical_chance(1));
+                    damage = round(dmg_MIRV * (1 + crit * (critpower(1) + laceration)) .* (1 + egon + savagery_bonus) * (1 + exposed));
+                    %log(:,n:n+MIRV_hits-1) = [[t;40]*ones(1,MIRV_hits);damage;[energy;energy2]*ones(1,MIRV_hits);crit;grenade*ones(1,MIRV_hits);[csd,soa,en,js;zeros(MIRV_hits-1,4)]'];
+                    n = n+MIRV_hits;
+                    totaldmg = totaldmg + sum(damage);
+                end            
+                if secondary_explosion == 1
+                    crit = (rand < critical_chance(1));
+                    damage = round(dmg_secondaryExplosion * (1 + crit * (critpower(1) + laceration)) .* (1 + signet_of_commando + egon + savagery_bonus) * (1 + exposed));
+                    %log(:,n) = [t;36;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                    n = n+1;
+                    totaldmg = totaldmg + sum(damage);
+                end
+
+                grenade = 0 + AEL*6.1;
+                
+            case 5 % raging shot
+                crit = (rand < critical_chance(2));
+                damage = round(dmg_ragingShot * (1 + crit * (critpower(2) + laceration)) * (1 + egon + savagery_bonus) * (1 + exposed));
+                db_stacks = min(6, db_stacks + 1);
+                falloff_times = t + (4:5:29); %times when dragon's breath stacks decrease
+                shells = max(0, shells - 1);
+                if shells == 0
+                    choose_shells = 1;
+                end            
+                csd = crit * (rand < 0.3) * cold_silver_dice;
+                soa = (rand < 0.15) * seed_of_aggression * (totaldmg > bossHP50);
+                en = (rand < 0.33) * of_energy(2);
+                if energy2 == 15
+                    te2 = t; %time point to determine energy regen start
+                end
+                energy2 = min(15, energy2 + crit + soa);
+                energy2 = energy2 - 5;
+                energy2 = min(15, energy2 + csd + en);            
+                gcd = 1;
+                hand = 2;
+                if of_efficiency(2) == 1
+                    cd_heg = cd_heg - (cd_heg - t)*0.05;
+                end
+
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+                totaldmg = totaldmg + sum(damage);
+                if spes_stacks > 0
+                    crit = (rand < critical_chance_sheet(2));
+                    damage = round(dmg_SPES_C221 * (1 + crit * (critpower_sheet(2) + laceration)) * (1 + egon + savagery_bonus) * (1 + exposed));
+                    %log(:,n) = [t;34;damage;energy;energy2;crit;grenade;0;0;0;0];
+                    n = n+1;
+                    totaldmg = totaldmg + sum(damage);
+                    spes_stacks = max(0, spes_stacks - 1);
+                end
+                spes_stacks = spes_stacks + (rand < 0.2);
+            case 6 % shell salvage
+                damage = 0;
+                energy = min(15,energy + 5);
+                energy2 = min(15,energy2 + 2 + shells);            
+                spes_stacks = min(6, spes_stacks + sum(rand(1,shells)<0.2));
+                shells = 0;
+                choose_shells = 1;
+                gcd = 0;
+                cd_ss = t + 20;            
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+            case 7 % choose shells
+                damage = 0;
+                shells = 6;
+                choose_shells = 0;
+                gcd = 1;           
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+            case 8 % vali metabolic enhancer
+                damage = 0;
+                energy = min(15,energy + 3);
+                energy2 = min(15,energy2 + 2);
+                gcd = 0;
+                cd_vme = t + gadget_cd;
+
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+            case 9 % turret gadget
+                crit = (rand < critical_chance_sheet(hand));
+                damage = round(dmg_effigyO35Turret(hand) * (1 + crit * (critpower_sheet(hand) + laceration)) * (1 + egon + savagery_bonus) * (1 + exposed)); %since it doesn't proc anything it's possible to do all damage at once
+                gcd = 0;
+                cd_tg = t + gadget_cd;
+
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+                totaldmg = totaldmg + sum(damage);
+            case 10 % lock & load
+                damage = 0;
+                energy = min(15,energy + 4);
+                gcd = 0;
+                cd_ll = t + 20;
+                if heavy_payload == 1
+                    grenade = (0.1 + 3 * (2-KSR)) * (rand < 0.41); %loads a grenade. extra .1 seconds from personal experience.
+                end
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+            case 11 % savagery
+                damage = 0;
+                energy2 = max(0,energy2 - 2);
+                gcd = 0;
+                cd_sa = t + 20;
+                %log(:,n) = [t;action;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                n = n+1;
+                totaldmg = totaldmg + sum(damage);
+                savagery_timeout = t+6;
+                savagery_bonus = 0.15;
+                
+        end    
+        % extra hits
+        critproc = max(crit); %did the ability crit at least once
+
+        if gcd == 1 % incendiary grenade's first tick occurs simultaneously with the hit
+            if ig_ticks(1)>0 %IG ticks, action 30
+                if ig_ticks(2)>0 %if dot is overwritten
+                    crit = rand(1,2) < critical_chance(1);
+                    damage = round([ig_ticks(2) 1] .* dmg_incendiaryGrenadeDot(1) .* (1 + signet_of_commando) .* (1 + crit * (critpower(1) + laceration)) * (1 + exposed)); %does remaining ticks damage and first tick of new one
+                    %log(:,n:n+1) = [[t t];[31,30];damage;[energy energy];[energy2 energy2];crit;[grenade grenade];[csd,soa,en,js; 0 0 0 0]'];
+                    n = n+2;
+                else
+                    crit = (rand < critical_chance(hand));
+                    damage = round(dmg_incendiaryGrenadeDot(hand) * (1 + signet_of_commando) * (1 + crit * (critpower(hand) + laceration)) * (1 + exposed));
+                    %log(:,n) = [t;30;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                    n = n+1;
+                end
+                totaldmg = totaldmg + sum(damage);
+                ig_ticks = [max(0,ig_ticks(1)-1),0];
+            end
+            if db_stacks > 0 %dragon's breath
+                crit = rand < critical_chance(1);
+                damage = round(dmg_dragonsBreath(hand) * db_stacks * (1 + crit * (critpower(hand) + laceration)) * (1 + white_phosphorous_shells*0.14) * (1 + exposed));
+                if any(t == falloff_times)
+                    db_stacks = max(0, db_stacks-1);
+                end            
+                %log(:,n) = [t;33;damage;energy;energy2;crit;grenade;0;0;0;0];
+                n = n+1;
+                totaldmg = totaldmg + sum(damage);
+            end
+            if damage > 0
+                if ashes_of_crushed_cities == 1 && ashes_counter == 2
+                    crit = (rand < critical_chance_sheet(hand));
+                    damage = round(dmg_crushedCities(hand) * (1 + crit * (critpower_sheet(hand) + laceration)) * (1 + egon + savagery_bonus) * (1 + exposed));  
+                    %log(:,n) = [t;38;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                    n = n+1;
+                    totaldmg = totaldmg + sum(damage);
+                    ashes_counter = 0;
+                else ashes_counter = ashes_counter + 1;
+                end
+                if of_destruction(hand) && totaldmg > bossHP35
+                    crit = (rand < critical_chance_sheet(hand));
+                    damage = round(dmg_destruction(hand) * (1 + crit * (critpower_sheet(hand) + laceration)) * (1 + egon + savagery_bonus) * (1 + exposed));  
+                    %log(:,n) = [t;32;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                    n = n+1;
+                    totaldmg = totaldmg + sum(damage);
+                end
+                if gamblers_soul == 1 && critproc == 1
+                    crit = (rand < critical_chance_sheet(hand));
+                    damage = round(dmg_gamblersSoul(hand) * (1 + crit * (critpower_sheet(hand) + laceration)) * (1 + egon + savagery_bonus) * (1 + exposed));  
+                    %log(:,n) = [t;37;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                    n = n+1;
+                    totaldmg = totaldmg + sum(damage);
+                end
+                if (iron_sulfur_bracelet == 1) && (rand < 0.25) %&& (exposed > 0) %just going to assume it
+                    crit = (rand < critical_chance_sheet(hand));
+                    damage = round(dmg_ironSulfurBracelet(hand) * (1 + crit * (critpower_sheet(hand) + laceration)) * (1 + egon + savagery_bonus) * (1 + exposed));  
+                    %log(:,n) = [t;35;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                    n = n+1;
+                    totaldmg = totaldmg + sum(damage);
+                end
+                if egon_pendant == 1 && totaldmg > bossHP50
+                    crit = (rand < critical_chance_sheet(hand));
+                    damage = round(dmg_egonPendant(hand) * (1 + crit * (critpower_sheet(hand) + laceration)) * (1 + egon + savagery_bonus) * (1 + exposed));  
+                    %log(:,n) = [t;39;damage;energy;energy2;crit;grenade;csd;soa;en;js];
+                    n = n+1;
+                    totaldmg = totaldmg + sum(damage);
+                    egon_timeout = t+5;
+                    egon = 0.045 * enemies; %4.5% per enemy
+                end
+                if signet_of_laceration == 1 && cd_lac<=t && critproc == 1
+                    laceration = 0.1882;
+                    cd_lac = t+15;
+                    laceration_timeout = t+5;
+                end
+            end
+            if t == egon_timeout
+                egon = 0;
+            end
+            if t == AUX_timeout
+                AUXchance = 0;
+            end
+            if t == savagery_timeout
+                savagery_bonus = 0;
+            end
+            if t == laceration_timeout
+                laceration = 0;
+            end
+        end
+
+        t = t + gcd;
+        grenade = max(0,round(grenade - gcd,2));
+        energy = min(15, energy + gcd);
+        energy2 = min(15, energy2 + (mod(t-te2,2)==0)*gcd);
+%         if gcd == 1
+%             %log(:,n) = [t;-2;0;energy;energy2;0;grenade;0;0;0;0];
+%             n = n+1;
+%         end
+
+        if totaldmg > bossHP
+            break
+        end
+
+    end
+    dps(j)=round(totaldmg/t);
+end
+
+testcombodps(test,:)=[testmatrix(test,:),[min(dps) median(dps) max(dps) std(dps) std(dps)/sqrt(length(dps))]];
+sprintf('Vali %i\nO35 turret %i\nDice %i\nGambler %i\nEgon %i\nSeed %i\nAshes %i\nIron-Sulfur %i\nBelt %i\nEnergy %i\nDestruction %i\nHavoc %i\nLaceration %i\nMIRV hits %i\nJungle Style %i\nStability %i\nSlow Burn %i\nAuto Loader %i\nWhite Phosphorous %i\nSecondary Exp %i\nEmergency Loader %i\nHeavy Payload %i\nDPS(median) %i DPS difference %i STD %i STDmedian %i',vali_metabolic_enhancer, o35_turret, cold_silver_dice, gamblers_soul, egon_pendant, seed_of_aggression, ashes_of_crushed_cities, iron_sulfur_bracelet, military_strap, of_energy(1), of_destruction(1), of_havoc(1), signet_of_laceration, MIRV_hits, jungle_style, any(stability), slow_burn, auto_loader, white_phosphorous_shells, secondary_explosion, emergency_loader>0, heavy_payload,round(median(dps)),-round(median(dps)-testcombodps(1,end-3)),round(std(dps)),round(std(dps)/sqrt(length(dps))))
+
+end
+% end
+% toc
+% median(dps)
+% std(dps)
+% std(dps)/sqrt(length(dps))
